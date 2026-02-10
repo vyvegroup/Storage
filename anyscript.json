@@ -1,0 +1,12 @@
+[
+  {
+    "game_name": "Blox Fruits",
+    "script_name": "Auto Farm Pro",
+    "loading_script": "loadstring(game:HttpGet('...'))()"
+  },
+  {
+    "game_name": "King Legacy",
+    "script_name": "Hub Cực Căng",
+    "loading_script": "loadstring(game:HttpGet('...'))()"
+  }
+]
