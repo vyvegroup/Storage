@@ -1,0 +1,628 @@
+-- Load Rayfield UI Library
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+
+-- Variables
+local attackEnabled = false
+local attackCount = 10
+local bringEnabled = false
+local bringDistance = 5
+local hitboxEnabled = false
+local hitboxSize = 10
+local reachEnabled = false
+local whitelistNames = {}
+local originalSizes = {}
+
+-- Window
+local Window = Rayfield:CreateWindow({
+    Name = "⚔️ Combat Suite v3",
+    LoadingTitle = "Combat Suite v3",
+    LoadingSubtitle = "Ultimate Fix",
+    ConfigurationSaving = { Enabled = false },
+    KeySystem = false
+})
+
+----------------------------------------------
+-- UTILITY
+----------------------------------------------
+
+local function getChar()
+    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+end
+
+local function getHRP()
+    local c = getChar()
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+
+local function isWhitelisted(name)
+    for _, n in ipairs(whitelistNames) do
+        if string.lower(n) == string.lower(name) then return true end
+    end
+    return false
+end
+
+local function isAlive(player)
+    if not player then return false end
+    local char = player.Character
+    if not char then return false end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+    if hum.Health <= 0 then return false end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return false end
+    return true
+end
+
+local function getAliveEnemies()
+    local enemies = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and not isWhitelisted(player.Name) and isAlive(player) then
+            table.insert(enemies, player)
+        end
+    end
+    return enemies
+end
+
+-- Ẩn xác chết hoàn toàn
+local function hideDeadBody(player)
+    pcall(function()
+        local char = player.Character
+        if not char then return end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = false
+                    part.CanQuery = false
+                    part.CanTouch = false
+                    part.Transparency = 1
+                    part.Size = Vector3.new(0.01, 0.01, 0.01)
+                end
+            end
+        end
+    end)
+end
+
+local function getWeaponArgs()
+    local char = getChar()
+    if not char then return nil end
+    local blade = char:FindFirstChild("Crimson Blade")
+    if not blade then return nil end
+    local handle = blade:FindFirstChild("Handle")
+    if not handle then return nil end
+    local s = handle:FindFirstChild("Swing")
+    local h = handle:FindFirstChild("HitSound")
+    local a = handle:FindFirstChild("AttachmentDmgNum")
+    local hl = blade:FindFirstChild("Highlight")
+    if not (s and h and a and hl) then return nil end
+    return s, h, a, hl
+end
+
+local function getRemote()
+    local we = ReplicatedStorage:FindFirstChild("WeaponEvents")
+    if not we then return nil end
+    return we:FindFirstChild("CrimsonBladeAttack")
+end
+
+----------------------------------------------
+-- AUTO ATTACK (X lần mỗi 0.01s)
+----------------------------------------------
+
+local attackThread = nil
+
+local function startAttack()
+    if attackThread then
+        pcall(function() task.cancel(attackThread) end)
+        attackThread = nil
+    end
+
+    attackThread = task.spawn(function()
+        while true do
+            if attackEnabled then
+                local remote = getRemote()
+                local s, h, a, hl = getWeaponArgs()
+                if remote and s then
+                    for i = 1, attackCount do
+                        if not attackEnabled then break end
+                        pcall(function()
+                            remote:FireServer(s, h, a, hl)
+                        end)
+                    end
+                end
+            end
+            task.wait(0.01)
+        end
+    end)
+end
+
+----------------------------------------------
+-- BRING (chỉ bring người SỐNG, ẩn xác chết)
+----------------------------------------------
+
+local bringConnection = nil
+
+local function startBring()
+    if bringConnection then bringConnection:Disconnect() end
+
+    bringConnection = RunService.Heartbeat:Connect(function()
+        if not bringEnabled then return end
+
+        local myHRP = getHRP()
+        if not myHRP then return end
+        local myChar = getChar()
+        if not myChar then return end
+
+        local lookVector = myHRP.CFrame.LookVector
+        local targetPos = myHRP.Position + lookVector * bringDistance
+
+        -- Ẩn xác chết trước
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                if not isAlive(player) then
+                    hideDeadBody(player)
+                end
+            end
+        end
+
+        -- Chỉ bring người SỐNG
+        local enemies = getAliveEnemies()
+        for _, enemy in ipairs(enemies) do
+            pcall(function()
+                local enemyChar = enemy.Character
+                local enemyHRP = enemyChar:FindFirstChild("HumanoidRootPart")
+                if not enemyHRP then return end
+
+                -- Tắt collision enemy
+                for _, part in ipairs(enemyChar:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+
+                enemyHRP.CFrame = CFrame.new(targetPos)
+                enemyHRP.Velocity = Vector3.zero
+                enemyHRP.AssemblyLinearVelocity = Vector3.zero
+                enemyHRP.AssemblyAngularVelocity = Vector3.zero
+            end)
+        end
+
+        -- Giữ collision bạn
+        pcall(function()
+            for _, part in ipairs(myChar:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        end)
+    end)
+end
+
+----------------------------------------------
+-- HITBOX (CHỈ enemy sống, KHÔNG hitbox bạn, ẩn xác)
+----------------------------------------------
+
+local hitboxConnection = nil
+
+local function clearHitboxes()
+    for player, data in pairs(originalSizes) do
+        pcall(function()
+            if player.Character then
+                local root = player.Character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    root.Size = data.size
+                    root.Transparency = data.transparency
+                    root.CanCollide = data.canCollide
+                    root.Massless = false
+                end
+                -- Restore tất cả parts
+                for _, part in ipairs(player.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = true
+                        part.CanQuery = true
+                        part.CanTouch = true
+                    end
+                end
+            end
+        end)
+    end
+    originalSizes = {}
+end
+
+local function startHitbox()
+    if hitboxConnection then hitboxConnection:Disconnect() end
+
+    hitboxConnection = RunService.Heartbeat:Connect(function()
+        if not hitboxEnabled then return end
+
+        local myChar = getChar()
+        if not myChar then return end
+
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then -- BỎ QUA BẠN HOÀN TOÀN
+                pcall(function()
+                    local enemyChar = player.Character
+                    if not enemyChar then return end
+
+                    local hum = enemyChar:FindFirstChildOfClass("Humanoid")
+                    if not hum then return end
+
+                    local enemyHRP = enemyChar:FindFirstChild("HumanoidRootPart")
+                    if not enemyHRP then return end
+
+                    -- NGƯỜI CHẾT → ẩn hoàn toàn, thu nhỏ
+                    if hum.Health <= 0 then
+                        -- Xóa khỏi saved nếu có
+                        if originalSizes[player] then
+                            originalSizes[player] = nil
+                        end
+
+                        -- Ẩn xác
+                        for _, part in ipairs(enemyChar:GetDescendants()) do
+                            if part:IsA("BasePart") then
+                                part.Size = Vector3.new(0.01, 0.01, 0.01)
+                                part.Transparency = 1
+                                part.CanCollide = false
+                                part.CanQuery = false
+                                part.CanTouch = false
+                            end
+                        end
+                        return
+                    end
+
+                    -- NGƯỜI SỐNG + KHÔNG WHITELIST → expand hitbox
+                    if isWhitelisted(player.Name) then return end
+
+                    -- Lưu original lần đầu
+                    if not originalSizes[player] then
+                        originalSizes[player] = {
+                            size = enemyHRP.Size,
+                            transparency = enemyHRP.Transparency,
+                            canCollide = enemyHRP.CanCollide
+                        }
+                    end
+
+                    enemyHRP.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+                    enemyHRP.Transparency = 0.6
+                    enemyHRP.CanCollide = false
+                    enemyHRP.Massless = true
+                    enemyHRP.CanQuery = true
+                    enemyHRP.CanTouch = true
+
+                    -- Tắt collision tất cả parts enemy
+                    for _, part in ipairs(enemyChar:GetDescendants()) do
+                        if part:IsA("BasePart") and part ~= enemyHRP then
+                            part.CanCollide = false
+                        end
+                    end
+                end)
+            end
+        end
+
+        -- BẢO VỆ NHÂN VẬT BẠN - KHÔNG BAO GIỜ THAY ĐỔI
+        pcall(function()
+            if myChar then
+                for _, part in ipairs(myChar:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = true
+                    end
+                end
+            end
+        end)
+    end)
+end
+
+----------------------------------------------
+-- INFINITE REACH (firetouchinterest, chỉ người sống)
+----------------------------------------------
+
+local reachConnection = nil
+
+local function startReach()
+    if reachConnection then reachConnection:Disconnect() end
+
+    reachConnection = RunService.Heartbeat:Connect(function()
+        if not reachEnabled then return end
+
+        local char = getChar()
+        if not char then return end
+
+        local blade = char:FindFirstChild("Crimson Blade")
+        if not blade then return end
+
+        local handle = blade:FindFirstChild("Handle")
+        if not handle then return end
+
+        local touchInterest = handle:FindFirstChildOfClass("TouchInterest")
+        if not touchInterest then return end
+
+        local enemies = getAliveEnemies()
+
+        for _, enemy in ipairs(enemies) do
+            pcall(function()
+                local enemyChar = enemy.Character
+                if not enemyChar then return end
+
+                for _, part in ipairs(enemyChar:GetChildren()) do
+                    if part:IsA("BasePart") then
+                        firetouchinterest(handle, part, 0)
+                        task.defer(function()
+                            pcall(function()
+                                firetouchinterest(handle, part, 1)
+                            end)
+                        end)
+                    end
+                end
+            end)
+        end
+    end)
+end
+
+----------------------------------------------
+-- DEAD BODY CLEANER (chạy liên tục)
+----------------------------------------------
+
+local cleanerConnection = nil
+
+local function startDeadCleaner()
+    if cleanerConnection then cleanerConnection:Disconnect() end
+
+    cleanerConnection = RunService.Heartbeat:Connect(function()
+        -- Chỉ chạy khi bring hoặc hitbox bật
+        if not bringEnabled and not hitboxEnabled then return end
+
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and not isAlive(player) then
+                hideDeadBody(player)
+            end
+        end
+    end)
+end
+
+startDeadCleaner()
+
+----------------------------------------------
+-- UI TABS
+----------------------------------------------
+
+-- ========== ATTACK ==========
+local AttackTab = Window:CreateTab("⚔️ Attack", 4483362458)
+
+AttackTab:CreateToggle({
+    Name = "Auto Attack",
+    CurrentValue = false,
+    Flag = "AutoAttack",
+    Callback = function(v)
+        attackEnabled = v
+        if v then startAttack() end
+    end
+})
+
+AttackTab:CreateSlider({
+    Name = "Hits per 0.01s",
+    Range = {10, 40},
+    Increment = 1,
+    Suffix = " hits",
+    CurrentValue = 10,
+    Flag = "AttackCount",
+    Callback = function(v) attackCount = v end
+})
+
+AttackTab:CreateParagraph({
+    Title = "ℹ️ Info",
+    Content = "Mỗi 0.01s fire remote X lần.\n40 hits/0.01s = 4000 hits/giây.\nTự reconnect sau die."
+})
+
+-- ========== BRING ==========
+local BringTab = Window:CreateTab("🧲 Bring", 4483362458)
+
+BringTab:CreateToggle({
+    Name = "Bring All Enemies",
+    CurrentValue = false,
+    Flag = "BringAll",
+    Callback = function(v)
+        bringEnabled = v
+        if v then startBring()
+        else
+            if bringConnection then bringConnection:Disconnect() bringConnection = nil end
+        end
+    end
+})
+
+BringTab:CreateSlider({
+    Name = "Bring Distance",
+    Range = {1, 100},
+    Increment = 1,
+    Suffix = " studs",
+    CurrentValue = 5,
+    Flag = "BringDist",
+    Callback = function(v) bringDistance = v end
+})
+
+BringTab:CreateParagraph({
+    Title = "ℹ️ Info",
+    Content = "Chỉ bring người SỐNG.\nXác chết tự ẩn, không che.\nDistance 1 = sát mặt bạn."
+})
+
+BringTab:CreateInput({
+    Name = "Whitelist (dấu phẩy)",
+    PlaceholderText = "Player1,Player2",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        whitelistNames = {}
+        for name in string.gmatch(Text, "[^,]+") do
+            name = string.match(name, "^%s*(.-)%s*$") or ""
+            if name ~= "" then table.insert(whitelistNames, name) end
+        end
+        Rayfield:Notify({
+            Title = "Whitelist",
+            Content = #whitelistNames > 0 and table.concat(whitelistNames, ", ") or "Empty",
+            Duration = 3
+        })
+    end
+})
+
+BringTab:CreateButton({
+    Name = "Show Whitelist",
+    Callback = function()
+        Rayfield:Notify({
+            Title = "Whitelist",
+            Content = #whitelistNames > 0 and table.concat(whitelistNames, ", ") or "Empty",
+            Duration = 5
+        })
+    end
+})
+
+BringTab:CreateButton({
+    Name = "Clear Whitelist",
+    Callback = function()
+        whitelistNames = {}
+        Rayfield:Notify({ Title = "Cleared", Content = "Whitelist empty", Duration = 3 })
+    end
+})
+
+-- ========== HITBOX ==========
+local HitboxTab = Window:CreateTab("📦 Hitbox", 4483362458)
+
+HitboxTab:CreateToggle({
+    Name = "Hitbox Expander",
+    CurrentValue = false,
+    Flag = "Hitbox",
+    Callback = function(v)
+        hitboxEnabled = v
+        if v then startHitbox()
+        else
+            clearHitboxes()
+            if hitboxConnection then hitboxConnection:Disconnect() hitboxConnection = nil end
+        end
+    end
+})
+
+HitboxTab:CreateSlider({
+    Name = "Hitbox Size",
+    Range = {10, 200},
+    Increment = 5,
+    Suffix = " studs",
+    CurrentValue = 10,
+    Flag = "HitboxSize",
+    Callback = function(v) hitboxSize = v end
+})
+
+HitboxTab:CreateParagraph({
+    Title = "ℹ️ Info",
+    Content = "CHỈ hitbox enemy SỐNG.\nNgười chết → ẩn hoàn toàn, không che.\nKHÔNG hitbox nhân vật bạn.\nCanCollide tắt → không đẩy bạn."
+})
+
+-- ========== REACH ==========
+local ReachTab = Window:CreateTab("🎯 Reach", 4483362458)
+
+ReachTab:CreateToggle({
+    Name = "Infinite Reach",
+    CurrentValue = false,
+    Flag = "Reach",
+    Callback = function(v)
+        reachEnabled = v
+        if v then startReach()
+        else
+            if reachConnection then reachConnection:Disconnect() reachConnection = nil end
+        end
+    end
+})
+
+ReachTab:CreateParagraph({
+    Title = "ℹ️ Info",
+    Content = "Dùng firetouchinterest.\nĐánh mọi enemy bất kể khoảng cách.\nKHÔNG teleport, KHÔNG lag.\nChỉ hit người SỐNG.\nCần swing weapon (bật Auto Attack)."
+})
+
+-- ========== INFO ==========
+local InfoTab = Window:CreateTab("ℹ️ Info", 4483362458)
+
+InfoTab:CreateParagraph({
+    Title = "Combat Suite v3",
+    Content = [[
+⚔️ Attack: X hits mỗi 0.01s
+🧲 Bring: Chỉ người sống, xác ẩn, min 1 stud
+📦 Hitbox: Chỉ enemy sống, không hitbox bạn
+🎯 Reach: firetouchinterest, infinite range
+🛡️ Anti-fling tự động
+📋 Whitelist cho Bring + Reach
+💀 Auto ẩn xác chết
+    ]]
+})
+
+InfoTab:CreateButton({
+    Name = "Show Players",
+    Callback = function()
+        local list = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer then
+                local status = ""
+                if isWhitelisted(p.Name) then status = " [WL]" end
+                if not isAlive(p) then status = status .. " [DEAD]" end
+                table.insert(list, p.Name .. status)
+            end
+        end
+        Rayfield:Notify({
+            Title = "Players",
+            Content = #list > 0 and table.concat(list, "\n") or "None",
+            Duration = 6
+        })
+    end
+})
+
+----------------------------------------------
+-- RESPAWN HANDLER
+----------------------------------------------
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    char:WaitForChild("HumanoidRootPart")
+    task.wait(1.5)
+
+    if attackEnabled then startAttack() end
+    if bringEnabled then startBring() end
+    if hitboxEnabled then clearHitboxes(); startHitbox() end
+    if reachEnabled then startReach() end
+end)
+
+----------------------------------------------
+-- ANTI-FLING + PROTECT YOUR CHARACTER
+----------------------------------------------
+
+RunService.Heartbeat:Connect(function()
+    pcall(function()
+        local myHRP = getHRP()
+        if myHRP then
+            if myHRP.AssemblyLinearVelocity.Magnitude > 80 then
+                myHRP.AssemblyLinearVelocity = Vector3.zero
+                myHRP.Velocity = Vector3.zero
+            end
+        end
+
+        -- Luôn giữ collision bạn bật
+        local c = getChar()
+        if c then
+            for _, part in ipairs(c:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        end
+    end)
+end)
+
+----------------------------------------------
+-- INIT
+----------------------------------------------
+
+startAttack()
+startDeadCleaner()
+
+Rayfield:Notify({
+    Title = "Combat Suite v3 ✅",
+    Content = "Loaded! Xác chết tự ẩn, hitbox chỉ enemy sống.",
+    Duration = 5
+})
