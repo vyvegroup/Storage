@@ -1,0 +1,576 @@
+-- Load Rayfield UI Library
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+
+-- Variables
+local attackEnabled = false
+local attackSpeed = 10
+local bringEnabled = false
+local bringDistance = 10
+local hitboxEnabled = false
+local hitboxSize = 10
+local reachEnabled = false
+local whitelistNames = {}
+local originalSizes = {}
+local anchoredStates = {}
+
+-- Window
+local Window = Rayfield:CreateWindow({
+    Name = "⚔️ Combat Suite",
+    LoadingTitle = "Combat Suite",
+    LoadingSubtitle = "by Script",
+    ConfigurationSaving = {
+        Enabled = false
+    },
+    KeySystem = false
+})
+
+----------------------------------------------
+-- UTILITY FUNCTIONS
+----------------------------------------------
+
+local function getCharacter()
+    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+end
+
+local function getHumanoidRootPart()
+    local char = getCharacter()
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function getHumanoid()
+    local char = getCharacter()
+    return char and char:FindFirstChildOfClass("Humanoid")
+end
+
+local function isWhitelisted(playerName)
+    for _, name in ipairs(whitelistNames) do
+        if string.lower(name) == string.lower(playerName) then
+            return true
+        end
+    end
+    return false
+end
+
+local function getEnemies()
+    local enemies = {}
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and not isWhitelisted(player.Name) then
+            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+                if humanoid and humanoid.Health > 0 then
+                    table.insert(enemies, player)
+                end
+            end
+        end
+    end
+    return enemies
+end
+
+----------------------------------------------
+-- AUTO ATTACK SYSTEM
+----------------------------------------------
+
+local attackConnection = nil
+
+local function startAttack()
+    if attackConnection then
+        attackConnection:Disconnect()
+        attackConnection = nil
+    end
+
+    attackConnection = RunService.Heartbeat:Connect(function()
+        if not attackEnabled then return end
+
+        local char = getCharacter()
+        if not char then return end
+
+        local blade = char:FindFirstChild("Crimson Blade")
+        if not blade then return end
+
+        local handle = blade:FindFirstChild("Handle")
+        if not handle then return end
+
+        local swing = handle:FindFirstChild("Swing")
+        local hitSound = handle:FindFirstChild("HitSound")
+        local attachmentDmgNum = handle:FindFirstChild("AttachmentDmgNum")
+        local highlight = blade:FindFirstChild("Highlight")
+
+        if not (swing and hitSound and attachmentDmgNum and highlight) then return end
+
+        local event = ReplicatedStorage:FindFirstChild("WeaponEvents")
+        if not event then return end
+        local crimsonEvent = event:FindFirstChild("CrimsonBladeAttack")
+        if not crimsonEvent then return end
+
+        for i = 1, attackSpeed do
+            if not attackEnabled then break end
+            pcall(function()
+                crimsonEvent:FireServer(swing, hitSound, attachmentDmgNum, highlight)
+            end)
+        end
+    end)
+end
+
+-- Auto reconnect on respawn
+LocalPlayer.CharacterAdded:Connect(function(char)
+    char:WaitForChild("HumanoidRootPart")
+    task.wait(1)
+    if attackEnabled then
+        startAttack()
+    end
+end)
+
+----------------------------------------------
+-- BRING SYSTEM
+----------------------------------------------
+
+local bringConnection = nil
+
+local function startBring()
+    if bringConnection then
+        bringConnection:Disconnect()
+        bringConnection = nil
+    end
+
+    bringConnection = RunService.Heartbeat:Connect(function()
+        if not bringEnabled then return end
+
+        local myRoot = getHumanoidRootPart()
+        if not myRoot then return end
+
+        local lookVector = myRoot.CFrame.LookVector
+        local enemies = getEnemies()
+
+        for _, enemy in ipairs(enemies) do
+            pcall(function()
+                local enemyChar = enemy.Character
+                if not enemyChar then return end
+
+                local enemyRoot = enemyChar:FindFirstChild("HumanoidRootPart")
+                if not enemyRoot then return end
+
+                local targetPos = myRoot.Position + lookVector * bringDistance
+                enemyRoot.CFrame = CFrame.new(targetPos)
+                enemyRoot.Velocity = Vector3.new(0, 0, 0)
+                enemyRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            end)
+        end
+    end)
+end
+
+----------------------------------------------
+-- HITBOX SYSTEM (không đẩy bạn)
+----------------------------------------------
+
+local hitboxConnection = nil
+
+local function clearHitboxes()
+    for player, originalSize in pairs(originalSizes) do
+        pcall(function()
+            if player.Character then
+                local root = player.Character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    root.Size = originalSize
+                    root.Transparency = 0
+                    root.CanCollide = true
+                    if anchoredStates[player] ~= nil then
+                        -- don't change anchored
+                    end
+                end
+            end
+        end)
+    end
+    originalSizes = {}
+    anchoredStates = {}
+end
+
+local function startHitbox()
+    if hitboxConnection then
+        hitboxConnection:Disconnect()
+        hitboxConnection = nil
+    end
+
+    hitboxConnection = RunService.Heartbeat:Connect(function()
+        if not hitboxEnabled then
+            clearHitboxes()
+            return
+        end
+
+        local enemies = getEnemies()
+
+        for _, enemy in ipairs(enemies) do
+            pcall(function()
+                local enemyChar = enemy.Character
+                if not enemyChar then return end
+
+                local enemyRoot = enemyChar:FindFirstChild("HumanoidRootPart")
+                if not enemyRoot then return end
+
+                -- Save original size
+                if not originalSizes[enemy] then
+                    originalSizes[enemy] = enemyRoot.Size
+                end
+
+                enemyRoot.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+                enemyRoot.Transparency = 0.7
+                enemyRoot.CanCollide = false -- Không đẩy bạn
+                enemyRoot.Massless = true
+            end)
+        end
+
+        -- Đảm bảo bạn không bị đẩy
+        pcall(function()
+            local myRoot = getHumanoidRootPart()
+            if myRoot then
+                myRoot.CanCollide = true
+            end
+        end)
+    end)
+end
+
+----------------------------------------------
+-- INFINITE REACH SYSTEM
+----------------------------------------------
+
+local reachConnection = nil
+
+local function startReach()
+    if reachConnection then
+        reachConnection:Disconnect()
+        reachConnection = nil
+    end
+
+    reachConnection = RunService.Heartbeat:Connect(function()
+        if not reachEnabled then return end
+
+        local char = getCharacter()
+        if not char then return end
+
+        local blade = char:FindFirstChild("Crimson Blade")
+        if not blade then return end
+
+        local handle = blade:FindFirstChild("Handle")
+        if not handle then return end
+
+        local swing = handle:FindFirstChild("Swing")
+        local hitSound = handle:FindFirstChild("HitSound")
+        local attachmentDmgNum = handle:FindFirstChild("AttachmentDmgNum")
+        local highlight = blade:FindFirstChild("Highlight")
+
+        if not (swing and hitSound and attachmentDmgNum and highlight) then return end
+
+        local event = ReplicatedStorage:FindFirstChild("WeaponEvents")
+        if not event then return end
+        local crimsonEvent = event:FindFirstChild("CrimsonBladeAttack")
+        if not crimsonEvent then return end
+
+        local myRoot = getHumanoidRootPart()
+        if not myRoot then return end
+
+        local enemies = getEnemies()
+
+        for _, enemy in ipairs(enemies) do
+            pcall(function()
+                local enemyChar = enemy.Character
+                if not enemyChar then return end
+
+                local enemyRoot = enemyChar:FindFirstChild("HumanoidRootPart")
+                if not enemyRoot then return end
+
+                local enemyHumanoid = enemyChar:FindFirstChildOfClass("Humanoid")
+                if not enemyHumanoid or enemyHumanoid.Health <= 0 then return end
+
+                -- Tạm thời di chuyển Handle đến vị trí enemy để register hit
+                local originalCF = handle.CFrame
+                handle.CFrame = enemyRoot.CFrame
+
+                -- Fire attack tại vị trí enemy
+                crimsonEvent:FireServer(swing, hitSound, attachmentDmgNum, highlight)
+
+                -- Trả handle về vị trí ban đầu
+                task.defer(function()
+                    pcall(function()
+                        handle.CFrame = originalCF
+                    end)
+                end)
+            end)
+        end
+    end)
+end
+
+----------------------------------------------
+-- UI TABS
+----------------------------------------------
+
+-- ============ ATTACK TAB ============
+local AttackTab = Window:CreateTab("⚔️ Attack", 4483362458)
+
+AttackTab:CreateToggle({
+    Name = "Auto Attack",
+    CurrentValue = false,
+    Flag = "AutoAttack",
+    Callback = function(Value)
+        attackEnabled = Value
+        if Value then
+            startAttack()
+        else
+            if attackConnection then
+                attackConnection:Disconnect()
+                attackConnection = nil
+            end
+        end
+    end
+})
+
+AttackTab:CreateSlider({
+    Name = "Attack Speed (fires per frame)",
+    Range = {10, 40},
+    Increment = 1,
+    Suffix = "hits",
+    CurrentValue = 10,
+    Flag = "AttackSpeed",
+    Callback = function(Value)
+        attackSpeed = Value
+    end
+})
+
+-- ============ BRING TAB ============
+local BringTab = Window:CreateTab("🧲 Bring", 4483362458)
+
+BringTab:CreateToggle({
+    Name = "Bring All Enemies",
+    CurrentValue = false,
+    Flag = "BringAll",
+    Callback = function(Value)
+        bringEnabled = Value
+        if Value then
+            startBring()
+        else
+            if bringConnection then
+                bringConnection:Disconnect()
+                bringConnection = nil
+            end
+        end
+    end
+})
+
+BringTab:CreateSlider({
+    Name = "Bring Distance",
+    Range = {10, 100},
+    Increment = 1,
+    Suffix = "studs",
+    CurrentValue = 10,
+    Flag = "BringDistance",
+    Callback = function(Value)
+        bringDistance = Value
+    end
+})
+
+BringTab:CreateParagraph({
+    Title = "📋 Whitelist Info",
+    Content = "Nhập tên người chơi vào ô bên dưới để bỏ qua khi Bring.\nMỗi tên cách nhau bằng dấu phẩy (,)\nVí dụ: Player1,Player2,Player3"
+})
+
+BringTab:CreateInput({
+    Name = "Whitelist Players",
+    PlaceholderText = "Player1,Player2,Player3",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        whitelistNames = {}
+        for name in string.gmatch(Text, "[^,]+") do
+            name = string.gsub(name, "^%s+", "")
+            name = string.gsub(name, "%s+$", "")
+            if name ~= "" then
+                table.insert(whitelistNames, name)
+            end
+        end
+        Rayfield:Notify({
+            Title = "Whitelist Updated",
+            Content = "Whitelisted: " .. (#whitelistNames > 0 and table.concat(whitelistNames, ", ") or "None"),
+            Duration = 3
+        })
+    end
+})
+
+-- Quick whitelist buttons
+BringTab:CreateButton({
+    Name = "Show Current Whitelist",
+    Callback = function()
+        local list = #whitelistNames > 0 and table.concat(whitelistNames, ", ") or "Empty"
+        Rayfield:Notify({
+            Title = "Current Whitelist",
+            Content = list,
+            Duration = 5
+        })
+    end
+})
+
+BringTab:CreateButton({
+    Name = "Clear Whitelist",
+    Callback = function()
+        whitelistNames = {}
+        Rayfield:Notify({
+            Title = "Whitelist Cleared",
+            Content = "All players removed from whitelist",
+            Duration = 3
+        })
+    end
+})
+
+-- ============ HITBOX TAB ============
+local HitboxTab = Window:CreateTab("📦 Hitbox", 4483362458)
+
+HitboxTab:CreateToggle({
+    Name = "Hitbox Expander",
+    CurrentValue = false,
+    Flag = "Hitbox",
+    Callback = function(Value)
+        hitboxEnabled = Value
+        if Value then
+            startHitbox()
+        else
+            clearHitboxes()
+            if hitboxConnection then
+                hitboxConnection:Disconnect()
+                hitboxConnection = nil
+            end
+        end
+    end
+})
+
+HitboxTab:CreateSlider({
+    Name = "Hitbox Size",
+    Range = {10, 200},
+    Increment = 5,
+    Suffix = "studs",
+    CurrentValue = 10,
+    Flag = "HitboxSize",
+    Callback = function(Value)
+        hitboxSize = Value
+    end
+})
+
+HitboxTab:CreateParagraph({
+    Title = "ℹ️ Hitbox Info",
+    Content = "Hitbox mở rộng HumanoidRootPart của enemy.\nCanCollide = false nên KHÔNG đẩy bạn.\nEnemy hitbox hiển thị bán trong suốt."
+})
+
+-- ============ REACH TAB ============
+local ReachTab = Window:CreateTab("🎯 Infinite Reach", 4483362458)
+
+ReachTab:CreateToggle({
+    Name = "Infinite Reach (Hit All)",
+    CurrentValue = false,
+    Flag = "InfiniteReach",
+    Callback = function(Value)
+        reachEnabled = Value
+        if Value then
+            startReach()
+        else
+            if reachConnection then
+                reachConnection:Disconnect()
+                reachConnection = nil
+            end
+        end
+    end
+})
+
+ReachTab:CreateParagraph({
+    Title = "ℹ️ Reach Info",
+    Content = "Infinite Reach tạm di chuyển Handle weapon đến vị trí enemy\nđể register hit từ server, sau đó trả về.\nKhông spam, không lag, đánh ALL enemy bất kể khoảng cách.\nWhitelist từ tab Bring cũng áp dụng ở đây."
+})
+
+-- ============ INFO TAB ============
+local InfoTab = Window:CreateTab("ℹ️ Info", 4483362458)
+
+InfoTab:CreateParagraph({
+    Title = "Combat Suite",
+    Content = [[
+⚔️ Auto Attack: Tự động đánh, chỉnh 10-40 hits/frame
+🧲 Bring All: Kéo enemy về trước mặt, chỉnh khoảng cách
+📦 Hitbox: Mở rộng hitbox enemy, không đẩy bạn
+🎯 Infinite Reach: Đánh ALL enemy mọi khoảng cách
+📋 Whitelist: Bỏ qua người chơi khỏi Bring & Reach
+
+✅ Tự động hoạt động lại sau khi die/reset
+✅ Không lag, tối ưu performance
+    ]]
+})
+
+InfoTab:CreateButton({
+    Name = "Show All Players",
+    Callback = function()
+        local playerList = {}
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                local status = isWhitelisted(player.Name) and " ✅ (WL)" or ""
+                table.insert(playerList, player.Name .. status)
+            end
+        end
+        Rayfield:Notify({
+            Title = "Players in Server",
+            Content = #playerList > 0 and table.concat(playerList, "\n") or "No other players",
+            Duration = 8
+        })
+    end
+})
+
+----------------------------------------------
+-- CLEANUP ON CHARACTER DEATH/RESPAWN
+----------------------------------------------
+
+local function onCharacterAdded(char)
+    local humanoid = char:WaitForChild("Humanoid")
+
+    humanoid.Died:Connect(function()
+        -- Clear hitboxes on death
+        clearHitboxes()
+    end)
+
+    -- Wait for character to fully load
+    char:WaitForChild("HumanoidRootPart")
+    task.wait(1.5)
+
+    -- Restart active features
+    if attackEnabled then startAttack() end
+    if bringEnabled then startBring() end
+    if hitboxEnabled then startHitbox() end
+    if reachEnabled then startReach() end
+end
+
+LocalPlayer.CharacterAdded:Connect(onCharacterAdded)
+
+-- Initial setup if character exists
+if LocalPlayer.Character then
+    task.spawn(function()
+        onCharacterAdded(LocalPlayer.Character)
+    end)
+end
+
+----------------------------------------------
+-- ANTI-FLING PROTECTION
+----------------------------------------------
+
+RunService.Heartbeat:Connect(function()
+    pcall(function()
+        local myRoot = getHumanoidRootPart()
+        if myRoot then
+            local vel = myRoot.AssemblyLinearVelocity
+            if vel.Magnitude > 100 then
+                myRoot.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                myRoot.Velocity = Vector3.new(0, 0, 0)
+            end
+        end
+    end)
+end)
+
+Rayfield:Notify({
+    Title = "Combat Suite Loaded ✅",
+    Content = "All features ready! Use tabs to configure.",
+    Duration = 5
+})
