@@ -2,7 +2,7 @@
   {
     "game_name": "Blox Fruits",
     "script_name": "Auto Farm Pro",
-    "loading_script": "loadstring(game:HttpGet('...'))()"
+    "loading_script": "loadstring(game:HttpGet('https://raw.githubusercontent.com/vyvegroup/Storage/refs/heads/main/auto'))()"
   },
   {
     "game_name": "King Legacy",
