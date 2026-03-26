@@ -1,0 +1,55 @@
+-- Config
+local BLOCKED = {"fb", "crash", "rj"}
+
+-- Đợi IY load
+local iyEnv
+repeat
+    for _, v in pairs(getgc()) do
+        if type(v) == "function" then
+            local ok, env = pcall(getfenv, v)
+            if ok and env and env.cmds and env.execCmd then
+                iyEnv = env
+                break
+            end
+        end
+    end
+    task.wait(1)
+until iyEnv
+
+-- Hook
+local original = iyEnv.execCmd
+iyEnv.execCmd = function(cmdStr, speaker, store)
+    local cmdName = cmdStr:match("^%S+")
+    if cmdName then
+        for _, b in pairs(BLOCKED) do
+            if cmdName:lower() == b:lower() then
+                -- Popup UI
+                local playerGui = game.Players.LocalPlayer.PlayerGui
+                local sg = Instance.new("ScreenGui", playerGui)
+                sg.Name = "BlockerUI"
+                sg.ResetOnSpawn = false
+                
+                local f = Instance.new("Frame", sg)
+                f.Size = UDim2.new(0, 250, 0, 100)
+                f.Position = UDim2.new(0.5, -125, 0.5, -50)
+                f.BackgroundColor3 = Color3.fromRGB(36, 36, 37)
+                f.BorderSizePixel = 0
+                
+                local t = Instance.new("TextLabel", f)
+                t.Size = UDim2.new(1, 0, 1, 0)
+                t.BackgroundTransparency = 1
+                t.TextColor3 = Color3.new(1,1,1)
+                t.Text = '⚠ Lệnh "'..cmdName..'" đã bị chặn!'
+                t.TextWrapped = true
+                t.Font = Enum.Font.SourceSans
+                t.TextSize = 16
+                
+                game:GetService("Debris"):AddItem(sg, 3)
+                return
+            end
+        end
+    end
+    return original(cmdStr, speaker, store)
+end
+
+print("✅ IY Blocker active!")
